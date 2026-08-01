@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quantidade Herói</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: var(--bg); color: var(--text); }
+    .page-form { min-height: 100vh; padding: 2rem; display: grid; place-items: center; }
+    .card { width: min(760px, 100%); background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius); box-shadow: 0 20px 60px rgba(0,0,0,0.35); padding: 2rem; }
+    .card h1 { margin-bottom: 0.75rem; font-size: clamp(2rem, 4vw, 2.75rem); }
+    .card p { color: var(--text-muted); margin-bottom: 1.75rem; line-height: 1.7; }
+    .form-row { display: grid; gap: 1rem; margin-bottom: 1.25rem; }
+    label { font-size: 0.95rem; color: var(--text-muted); font-weight: 700; }
+    input[type=file] { width: 100%; padding: 1rem; border-radius: 14px; border: 1px dashed rgba(255,255,255,0.18); background: rgba(255,255,255,0.03); color: var(--text); cursor: pointer; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 1rem 1.25rem; border: none; border-radius: 14px; cursor: pointer; font-weight: 700; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(108,92,231,0.25); }
+    .btn-secondary { background: rgba(255,255,255,0.06); color: var(--text); }
+    .message { padding: 1rem 1.1rem; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); margin-bottom: 1.25rem; }
+    .message.error { border-color: rgba(255, 90, 90, 0.35); background: rgba(255, 90, 90, 0.08); color: #ffb3b3; }
+    .summary { display: grid; gap: 0.75rem; margin-top: 1rem; padding: 1rem 1rem 0; border-top: 1px solid rgba(255,255,255,0.08); }
+    .summary span { display: inline-flex; gap: 0.35rem; font-size: 0.95rem; color: var(--text); }
+    .summary strong { color: #fff; }
+    .back-link { display: inline-flex; gap: 0.5rem; align-items: center; margin-top: 1rem; color: var(--text); text-decoration: none; }
+  </style>
+</head>
+<body class="page-menu">
+  <main class="page-form">
+    <section class="card">
+      <h1>Quantidade Herói</h1>
+      <p>Envie um CSV com as colunas <strong>Player Name, Player ID, Country/Region, Hero</strong>. O sistema valida o cabeçalho antes de seguir para a página de exibição.</p>
+
+      <div class="form-row">
+        <label for="heroesCsv">Arquivo CSV</label>
+        <input id="heroesCsv" type="file" accept=".csv" aria-describedby="helpText">
+      </div>
+
+      <div class="form-row">
+        <button id="processBtn" class="btn btn-primary">Validar e Enviar</button>
+      </div>
+
+      <div id="feedback" class="message" style="display:none;"></div>
+      <div id="summary" class="summary" style="display:none;">
+        <span>Total de linhas válidas: <strong id="rowCount">0</strong></span>
+        <span>Total de heróis únicos: <strong id="heroCount">0</strong></span>
+      </div>
+
+      <a class="back-link" href="index.html">← Voltar ao menu</a>
+    </section>
+  </main>
+
+  <script>
+    const expectedHeaders = ["Player Name", "Player ID", "Country/Region", "Hero"];
+    const fileInput = document.getElementById('heroesCsv');
+    const feedback = document.getElementById('feedback');
+    const summary = document.getElementById('summary');
+    const rowCountEl = document.getElementById('rowCount');
+    const heroCountEl = document.getElementById('heroCount');
+    const processBtn = document.getElementById('processBtn');
+
+    function showFeedback(message, isError = false) {
+      feedback.textContent = message;
+      feedback.className = isError ? 'message error' : 'message';
+      feedback.style.display = 'block';
+    }
+
+    function hideFeedback() {
+      feedback.style.display = 'none';
+    }
+
+    function parseCSV(text) {
+      const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+      if (!lines.length) return [];
+
+      const delimiter = lines[0].includes(';') && !lines[0].includes(',') ? ';' : ',';
+      return lines.map(line => {
+        const cells = [];
+        let current = '';
+        let insideQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            if (insideQuotes && line[i + 1] === '"') {
+              current += '"';
+              i++;
+            } else {
+              insideQuotes = !insideQuotes;
+            }
+          } else if (char === delimiter && !insideQuotes) {
+            cells.push(current);
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        cells.push(current);
+        return cells.map(cell => cell.trim().replace(/^"|"$/g, ''));
+      });
+    }
+
+    function normalizeHeader(value) {
+      return value.trim().replace(/^"|"$/g, '').replace(/\s+/g, ' ').toLowerCase();
+    }
+
+    function validateHeader(headerRow) {
+      const normalized = headerRow.map(normalizeHeader);
+      return expectedHeaders.every(expected => normalized.includes(expected.toLowerCase()));
+    }
+
+    processBtn.addEventListener('click', async () => {
+      hideFeedback();
+      summary.style.display = 'none';
+      const file = fileInput.files[0];
+      if (!file) {
+        showFeedback('Selecione um arquivo CSV antes de continuar.', true);
+        return;
+      }
+
+      try {
+        const text = await file.text();
+        const rows = parseCSV(text);
+        if (rows.length === 0) {
+          showFeedback('O arquivo está vazio ou inválido.', true);
+          return;
+        }
+
+        const headerRow = rows[0];
+        if (!validateHeader(headerRow)) {
+          showFeedback('Cabeçalho inválido. Certifique-se de usar: Player Name, Player ID, Country/Region, Hero.', true);
+          return;
+        }
+
+        const headings = headerRow.map(normalizeHeader);
+        const mapIndex = {
+          playerName: headings.indexOf('player name'),
+          playerId: headings.indexOf('player id'),
+          country: headings.indexOf('country/region'),
+          hero: headings.indexOf('hero')
+        };
+
+        const dataRows = [];
+        const heroCounts = {};
+
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (row.length < 4) continue;
+          const playerName = row[mapIndex.playerName] || '';
+          const playerId = row[mapIndex.playerId] || '';
+          const country = row[mapIndex.country] || '';
+          const hero = row[mapIndex.hero] || '';
+          if (!playerName && !playerId && !country && !hero) continue;
+
+          const cleanHero = hero.trim();
+          if (!cleanHero) continue;
+
+          dataRows.push({
+            playerName: playerName.trim(),
+            playerId: playerId.trim(),
+            country: country.trim(),
+            hero: cleanHero
+          });
+
+          heroCounts[cleanHero] = (heroCounts[cleanHero] || 0) + 1;
+        }
+
+        if (dataRows.length === 0) {
+          showFeedback('Nenhuma linha válida foi encontrada após o cabeçalho.', true);
+          return;
+        }
+
+        sessionStorage.setItem('qtdheroes-data', JSON.stringify({
+          rows: dataRows,
+          counts: heroCounts,
+          totalRows: dataRows.length,
+          uploadedAt: new Date().toISOString()
+        }));
+
+        rowCountEl.textContent = dataRows.length;
+        heroCountEl.textContent = Object.keys(heroCounts).length;
+        summary.style.display = 'grid';
+
+        setTimeout(() => {
+          window.location.href = 'qtdheroes-display.html';
+        }, 300);
+      } catch (err) {
+        console.error(err);
+        showFeedback('Erro ao processar o arquivo. Verifique o formato e tente novamente.', true);
+      }
+    });
+  </script>
+</body>
+</html>

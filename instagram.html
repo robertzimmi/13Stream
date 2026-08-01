@@ -1,0 +1,203 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Instagram Overlay</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="page-app">
+  <main class="page-form">
+    <section class="card">
+      <div class="card-header">
+        <h1 class="card-title">Instagram Overlay</h1>
+        <p class="card-text">Envie os dois arquivos CSV e siga para o display do Instagram.</p>
+      </div>
+
+      <div class="form-row">
+        <label for="heroesFile">1. Inserir heroes.csv</label>
+        <input class="input-file" type="file" id="heroesFile" accept=".csv">
+      </div>
+
+      <div class="form-row">
+        <label for="standingsFile">2. Inserir standings.csv</label>
+        <input class="input-file" type="file" id="standingsFile" accept=".csv">
+      </div>
+
+      <div class="checkbox-group">
+        <input type="checkbox" id="toggleMetadata" onchange="toggleInfoFields()">
+        <label for="toggleMetadata">Personalizar Data / Loja / Formato</label>
+      </div>
+
+      <div id="extraFields" class="extra-fields">
+        <div class="form-row">
+          <label for="inputData">Data</label>
+          <input type="date" id="inputData">
+        </div>
+        <div class="form-row">
+          <label for="inputLoja">Loja / Evento</label>
+          <input type="text" id="inputLoja" placeholder="Ex: Pokemae">
+        </div>
+        <div class="form-row">
+          <label for="selectFormato">Formato</label>
+          <select id="selectFormato">
+            <option value="SAGE">SAGE</option>
+            <option value="CC">CC</option>
+            <option value="LL">LL</option>
+            <option value="BLITZ">BLITZ</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="btn-group">
+        <button type="button" class="btn btn-secondary" onclick="limparCampos()">Limpar</button>
+        <button type="button" class="btn btn-primary" onclick="processarDados()">Validar e Enviar</button>
+      </div>
+
+      <div id="feedback" class="message" style="display:none;"></div>
+    </section>
+  </main>
+
+  <script src="herois.js"></script>
+  <script>
+    function toggleInfoFields() {
+      document.getElementById('extraFields').classList.toggle('show', document.getElementById('toggleMetadata').checked);
+    }
+
+    function limparCampos() {
+      document.getElementById('heroesFile').value = '';
+      document.getElementById('standingsFile').value = '';
+      document.getElementById('toggleMetadata').checked = false;
+      document.getElementById('extraFields').classList.remove('show');
+      document.getElementById('inputData').value = '';
+      document.getElementById('inputLoja').value = '';
+      document.getElementById('selectFormato').value = 'SAGE';
+    }
+
+    function parseCSV(text) {
+      const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+      if (!lines.length) return [];
+      const separator = lines[0].includes(';') && !lines[0].includes(',') ? ';' : ',';
+
+      return lines.map(line => {
+        const cells = [];
+        let buffer = '';
+        let insideQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            if (insideQuotes && line[i + 1] === '"') {
+              buffer += '"';
+              i++;
+            } else {
+              insideQuotes = !insideQuotes;
+            }
+          } else if (char === separator && !insideQuotes) {
+            cells.push(buffer);
+            buffer = '';
+          } else {
+            buffer += char;
+          }
+        }
+        cells.push(buffer);
+        return cells.map(cell => cell.trim().replace(/^"|"$/g, ''));
+      });
+    }
+
+    function normalizeHeader(value) {
+      return value.trim().replace(/^"|"$/g, '').replace(/\s+/g, ' ').toLowerCase();
+    }
+
+    function validateHeader(headerRow, expectedHeaders) {
+      const normalized = headerRow.map(normalizeHeader);
+      return expectedHeaders.every(header => normalized.includes(header));
+    }
+
+    async function processarDados() {
+      const heroesFile = document.getElementById('heroesFile').files[0];
+      const standingsFile = document.getElementById('standingsFile').files[0];
+
+      if (!heroesFile || !standingsFile) {
+        alert('Selecione ambos os arquivos CSV antes de continuar.');
+        return;
+      }
+
+      const heroesText = await heroesFile.text();
+      const standingsText = await standingsFile.text();
+      const heroesCsv = parseCSV(heroesText);
+      const standingsCsv = parseCSV(standingsText);
+
+      if (!heroesCsv.length || !standingsCsv.length) {
+        alert('Um dos arquivos CSV não contém dados válidos.');
+        return;
+      }
+
+      const heroesHeader = heroesCsv[0];
+      const standingsHeader = standingsCsv[0];
+      const expectedHeroes = ['player name', 'player id', 'country/region', 'hero'];
+      const expectedStandings = ['rank', 'name', 'player id', 'wins'];
+
+      if (!validateHeader(heroesHeader, expectedHeroes)) {
+        alert('Cabeçalho inválido em heroes.csv. Use: Player Name, Player ID, Country/Region, Hero.');
+        return;
+      }
+
+      if (!validateHeader(standingsHeader, expectedStandings)) {
+        alert('Cabeçalho inválido em standings.csv. Use: Rank, Name, Player ID, Wins.');
+        return;
+      }
+
+      const heroIndexes = heroesHeader.reduce((acc, cell, idx) => {
+        acc[normalizeHeader(cell)] = idx;
+        return acc;
+      }, {});
+
+      const standingIndexes = standingsHeader.reduce((acc, cell, idx) => {
+        acc[normalizeHeader(cell)] = idx;
+        return acc;
+      }, {});
+
+      const heroMap = {};
+      for (let i = 1; i < heroesCsv.length; i++) {
+        const row = heroesCsv[i];
+        const name = (row[heroIndexes['player name']] || '').trim();
+        const hero = (row[heroIndexes['hero']] || '').trim();
+        if (name && hero) heroMap[name.toLowerCase()] = hero;
+      }
+
+      const standings = [];
+      for (let i = 1; i < standingsCsv.length; i++) {
+        const row = standingsCsv[i];
+        const rank = (row[standingIndexes['rank']] || '').trim();
+        const name = (row[standingIndexes['name']] || '').trim();
+        const playerId = (row[standingIndexes['player id']] || '').trim();
+        const wins = (row[standingIndexes['wins']] || '').trim();
+        if (!rank && !name && !playerId && !wins) continue;
+        standings.push({
+          rank,
+          nome: name,
+          playerId,
+          vitorias: wins,
+          heroi: heroMap[name.toLowerCase()] || ''
+        });
+      }
+
+      if (!standings.length) {
+        alert('Nenhuma linha válida encontrada em standings.csv.');
+        return;
+      }
+
+      const metadataEnabled = document.getElementById('toggleMetadata').checked;
+      const metadata = {
+        enabled: metadataEnabled,
+        date: document.getElementById('inputData').value,
+        store: document.getElementById('inputLoja').value,
+        format: document.getElementById('selectFormato').value
+      };
+
+      sessionStorage.setItem('instagram-data', JSON.stringify({ standings, metadata }));
+      window.location.href = 'instagram-display.html';
+    }
+  </script>
+</body>
+</html>
